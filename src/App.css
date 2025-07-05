@@ -1,0 +1,50 @@
+.App {
+  min-height: 100vh;
+  background: linear-gradient(135deg, #0a0a0a 0%, #1a1a1a 100%);
+}
+
+.mission-control-header {
+  text-align: center;
+  padding: 2rem 0;
+  background: rgba(0, 188, 212, 0.1);
+  border-radius: 8px;
+  margin-bottom: 2rem;
+}
+
+.telemetry-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2rem;
+  margin-bottom: 2rem;
+}
+
+.command-panel {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 8px;
+  padding: 1.5rem;
+  border: 1px solid rgba(0, 188, 212, 0.3);
+}
+
+.status-indicator {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  margin-right: 8px;
+}
+
+.status-connected {
+  background-color: #4caf50;
+  box-shadow: 0 0 6px #4caf50;
+}
+
+.status-disconnected {
+  background-color: #f44336;
+  box-shadow: 0 0 6px #f44336;
+}
+
+@media (max-width: 768px) {
+  .telemetry-grid {
+    grid-template-columns: 1fr;
+  }
+} 
