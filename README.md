@@ -25,10 +25,10 @@ A modern React-based user interface for monitoring and controlling lunar mission
 ## Architecture
 
 ```
-┌─────────────────┐    WebSocket    ┌─────────────────┐    WebSocket    ┌─────────────────┐
+┌─────────────────┐    WebSocket   ┌─────────────────┐    WebSocket    ┌─────────────────┐
 │                 │ ◄────────────► │                 │ ◄─────────────► │                 │
 │   React App     │                │  Bridge Server  │                 │   lunarterm     │
-│  (Port 2178)    │                │  (Port 2177)    │                 │   (Hardware)    │
+│  (Port 2178)    │                │  (Port 2177)    │                 │    on rasb      |
 └─────────────────┘                └─────────────────┘                 └─────────────────┘
 ```
 
@@ -110,12 +110,6 @@ The website displays dual connection status in the top bar:
 2. **Hardware → Server**: lunarterm hardware connects to bridge server on port 2177
 3. **Command Flow**: Website → Bridge Server → Hardware
 4. **Response Flow**: Hardware → Bridge Server → Website
-
-### Status Indicators
-
-- 🟢 **Server: connected, Hardware: connected** - Fully operational
-- 🟡 **Server: connected, Hardware: disconnected** - Commands will not be executed
-- 🔴 **Server: disconnected, Hardware: disconnected** - No connection to bridge server
 
 ## Available Commands
 
