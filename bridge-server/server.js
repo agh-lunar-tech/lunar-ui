@@ -1,236 +1,303 @@
-const express = require('express');
-const http = require('http');
-const socketIo = require('socket.io');
-const cors = require('cors');
-const dgram = require('dgram');
+import { WebSocketServer, WebSocket } from 'ws';
+import readline from 'readline';
+import chalk from 'chalk';
 
-const app = express();
-const server = http.createServer(app);
-const io = socketIo(server, {
-  cors: {
-    origin: "http://localhost:3000",
-    methods: ["GET", "POST"]
-  }
+const PORT = 2177;
+const HOST = '0.0.0.0';  // Listen on all interfaces
+
+// Create WebSocket server
+const wss = new WebSocketServer({ host: HOST, port: PORT });
+
+// Store connections
+let hardwareConnection = null;
+let websiteConnections = new Set();
+
+console.log(chalk.cyan(`WebSocket server starting on ${HOST}:${PORT}...`));
+
+// Create readline interface for commands
+const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+    prompt: 'command> ',
+    removeHistoryDuplicates: true
 });
 
-app.use(cors());
-app.use(express.json());
+// Available commands
+const AVAILABLE_COMMANDS = [
+    'idle', 'sen_init', 'cut_thermal', 'motor_up', 'img_capture',
+    'img_download', 'img_send', 'motor_down', 'led_proc',
+    'start_conops', 'reset', 'long'
+];
 
-// UDP server to receive telemetry from lunarterm
-const udpServer = dgram.createSocket('udp4');
-const TELEMETRY_PORT = 10015;
+// Handle WebSocket connections
+wss.on('connection', (ws, req) => {
+    const clientAddress = req.socket.remoteAddress;
+    console.log(chalk.green(`\nNew connection from ${clientAddress}`));
 
-// Store latest telemetry data
-let latestTelemetry = null;
+        // Handle incoming messages
+    ws.on('message', (data) => {
+        try {
+            const message = JSON.parse(data);
+            console.log(chalk.gray(`\n[DEBUG] Received from ${clientAddress}:`, JSON.stringify(message)));
+            
+            // Auto-detect connection type based on message patterns
+            
+            // 1. Check for explicit hardware identification first
+            if (message.type === 'hardware_hello') {
+                console.log(chalk.green(`\n[HARDWARE CONNECTED] ${message.message || 'Hardware connected'} from ${clientAddress}`));
+                hardwareConnection = ws;
+                console.log(chalk.green('[HARDWARE] Connection established and ready'));
+                
+                // Notify all website connections about hardware connection
+                websiteConnections.forEach(websiteWs => {
+                    if (websiteWs.readyState === WebSocket.OPEN) {
+                        websiteWs.send(JSON.stringify({
+                            type: 'hardware_status',
+                            connected: true
+                        }));
+                    }
+                });
+                
+                rl.prompt();
+                return;
+            }
+            
+            // 2. Website sends commands (simple { command: "idle" } format)
+            if (message.command && !message.type && !message.status) {
+                // This is a website command
+                if (!websiteConnections.has(ws)) {
+                    console.log(chalk.blue(`\n[WEBSITE CONNECTED] Command interface from ${clientAddress}`));
+                    websiteConnections.add(ws);
+                    
+                    // Send current hardware status to the new website connection
+                    try {
+                        ws.send(JSON.stringify({
+                            type: 'hardware_status',
+                            connected: !!(hardwareConnection && hardwareConnection.readyState === WebSocket.OPEN)
+                        }));
+                    } catch (error) {
+                        console.error(chalk.red('Error sending hardware status:', error));
+                    }
+                }
+                
+                console.log(chalk.blue(`\n[WEBSITE COMMAND] Received: ${message.command} from ${clientAddress}`));
+                
+                // Forward command to hardware
+                if (hardwareConnection && hardwareConnection.readyState === WebSocket.OPEN) {
+                    console.log(chalk.cyan(`[FORWARDING] Sending command "${message.command}" to hardware`));
+                    hardwareConnection.send(JSON.stringify({ command: message.command }));
+                } else {
+                    console.log(chalk.red('[ERROR] No hardware connection available'));
+                    ws.send(JSON.stringify({
+                        status: 'error',
+                        message: 'No hardware connection available'
+                    }));
+                }
+                return;
+            }
 
-// Frame constants from lunarterm
-const FRAME_START_SYMBOL = 0x12;
-const TELEMETRY_FRAME = 0x06;
-const TELEMETRY_FRAME_PAYLOAD_SIZE = 63;
+            // 3. Hardware sends responses with status field or type field (auto-detection fallback)
+            if (message.status !== undefined || (message.type && message.type !== 'server_hello' && message.type !== 'hardware_hello')) {
+                // This is hardware communication
+                if (hardwareConnection !== ws) {
+                    console.log(chalk.green(`\n[HARDWARE CONNECTED] Auto-detected from ${clientAddress}`));
+                    hardwareConnection = ws;
+                    console.log(chalk.green('[HARDWARE] Connection established and ready'));
+                    
+                    // Notify all website connections about hardware connection
+                    websiteConnections.forEach(websiteWs => {
+                        if (websiteWs.readyState === WebSocket.OPEN) {
+                            websiteWs.send(JSON.stringify({
+                                type: 'hardware_status',
+                                connected: true
+                            }));
+                        }
+                    });
+                    rl.prompt();
+                }
+                
+                // Continue processing the hardware message below
+            }
+            
+            // Clear current line to prevent message overlap
+            process.stdout.clearLine();
+            process.stdout.cursorTo(0);
 
-// Function to parse telemetry data
-function parseTelemetryData(payload) {
-  if (payload.length < TELEMETRY_FRAME_PAYLOAD_SIZE) {
-    console.warn('Telemetry payload too small:', payload.length);
-    return null;
-  }
+            // Handle command responses from hardware
+            if (message.status !== undefined) {
+                console.log(chalk.green(`\n[HARDWARE RESPONSE] Status: ${message.status}, Message: ${message.message}`));
+                console.log(chalk.cyan(`[FORWARDING] Sending response to ${websiteConnections.size} website client(s)`));
+                
+                // Forward response to all website connections
+                websiteConnections.forEach(websiteWs => {
+                    if (websiteWs.readyState === WebSocket.OPEN) {
+                        websiteWs.send(JSON.stringify(message));
+                    }
+                });
 
-  try {
-    // Based on the struct format from lunarterm: "<3h 3h h 3i h 6I 2h 2? 3B H"
-    let offset = 0;
-    
-    // IMU Gyroscope data (3 short integers)
-    const icm_gyr_x = payload.readInt16LE(offset); offset += 2;
-    const icm_gyr_y = payload.readInt16LE(offset); offset += 2;
-    const icm_gyr_z = payload.readInt16LE(offset); offset += 2;
-    
-    // IMU Accelerometer data (3 short integers)
-    const icm_acc_x = payload.readInt16LE(offset); offset += 2;
-    const icm_acc_y = payload.readInt16LE(offset); offset += 2;
-    const icm_acc_z = payload.readInt16LE(offset); offset += 2;
-    
-    // IMU Temperature (short integer)
-    const icm_temp = payload.readInt16LE(offset); offset += 2;
-    
-    // Magnetometer data (3 integers)
-    const mmc_mag_x = payload.readInt32LE(offset); offset += 4;
-    const mmc_mag_y = payload.readInt32LE(offset); offset += 4;
-    const mmc_mag_z = payload.readInt32LE(offset); offset += 4;
-    
-    // Magnetometer Temperature (short integer)
-    const mmc_temp = payload.readInt16LE(offset); offset += 2;
-    
-    // Radiation data (6 unsigned integers)
-    const rdn_serial_dose = payload.readUInt32LE(offset); offset += 4;
-    const rdn_sen1_dose = payload.readUInt32LE(offset); offset += 4;
-    const rdn_sen2_dose = payload.readUInt32LE(offset); offset += 4;
-    const rdn_serial_intensity = payload.readUInt32LE(offset); offset += 4;
-    const rdn_sen1_intensity = payload.readUInt32LE(offset); offset += 4;
-    const rdn_sen2_intensity = payload.readUInt32LE(offset); offset += 4;
-    
-    // Radiation temperature and voltage (2 short integers)
-    const rdn_temp = payload.readInt16LE(offset); offset += 2;
-    const rdn_vdd = payload.readInt16LE(offset); offset += 2;
-    
-    // Boolean flags (2 bytes)
-    const rdn_crystal_ok = payload.readUInt8(offset) !== 0; offset += 1;
-    const rdn_analog_ok = payload.readUInt8(offset) !== 0; offset += 1;
-    
-    // Sensor data (3 bytes + 1 short)
-    const encoder_sensor = payload.readUInt8(offset); offset += 1;
-    const hall_endstop = payload.readUInt8(offset); offset += 1;
-    const reflective_endstop = payload.readUInt8(offset); offset += 1;
-    const light_sensor = payload.readUInt16LE(offset); offset += 2;
+                if (message.status === 'success') {
+                    console.log(
+                        chalk.green('\n[COMMAND SUCCESS]'),
+                        chalk.white(message.message),
+                        '\n' + chalk.gray(`Port: ${message.port} (${message.port_open ? 'open' : 'closed'})`),
+                        '\n' + chalk.gray(`Timestamp: ${new Date(message.timestamp * 1000).toISOString()}`)
+                    );
+                } else {
+                    console.log(
+                        chalk.red('\n[COMMAND ERROR]'),
+                        chalk.white(message.message)
+                    );
+                    if (message.available_commands) {
+                        console.log(chalk.yellow('Available commands:'));
+                        message.available_commands.forEach(cmd => 
+                            console.log(chalk.yellow(`  ${cmd}`))
+                        );
+                    }
+                    console.log(chalk.gray(`Timestamp: ${new Date(message.timestamp * 1000).toISOString()}`));
+                }
+                rl.prompt();
+                return;
+            }
 
-    return {
-      'icm_gyr_data.x': icm_gyr_x,
-      'icm_gyr_data.y': icm_gyr_y,
-      'icm_gyr_data.z': icm_gyr_z,
-      'icm_acc_data.x': icm_acc_x,
-      'icm_acc_data.y': icm_acc_y,
-      'icm_acc_data.z': icm_acc_z,
-      'icm_temp': icm_temp,
-      'mmc_mag_data.x': mmc_mag_x,
-      'mmc_mag_data.y': mmc_mag_y,
-      'mmc_mag_data.z': mmc_mag_z,
-      'mmc_temp': mmc_temp,
-      'rdn_serial_dose': rdn_serial_dose,
-      'rdn_sen1_dose': rdn_sen1_dose,
-      'rdn_sen2_dose': rdn_sen2_dose,
-      'rdn_serial_intensity': rdn_serial_intensity,
-      'rdn_sen1_intensity': rdn_sen1_intensity,
-      'rdn_sen2_intensity': rdn_sen2_intensity,
-      'rdn_temp': rdn_temp,
-      'rdn_vdd': rdn_vdd,
-      'rdn_crystal_ok': rdn_crystal_ok,
-      'rdn_analog_ok': rdn_analog_ok,
-      'encoder_sensor': encoder_sensor,
-      'hall_endstop': hall_endstop,
-      'reflective_endstop': reflective_endstop,
-      'light_sensor': light_sensor
-    };
-  } catch (error) {
-    console.error('Error parsing telemetry data:', error);
-    return null;
-  }
-}
+            // Handle other message types from hardware
+            if (message.type) {
+                // Forward telemetry and other data to website connections
+                websiteConnections.forEach(websiteWs => {
+                    if (websiteWs.readyState === WebSocket.OPEN) {
+                        websiteWs.send(JSON.stringify(message));
+                    }
+                });
 
-// UDP server event handlers
-udpServer.on('message', (msg, rinfo) => {
-  console.log(`Received UDP message from ${rinfo.address}:${rinfo.port}, length: ${msg.length}`);
-  
-  if (msg.length < 3) {
-    console.warn('Message too short');
-    return;
-  }
-  
-  // Check for frame start symbol
-  if (msg[0] !== FRAME_START_SYMBOL) {
-    console.warn('Invalid frame start symbol:', msg[0]);
-    return;
-  }
-  
-  const frameType = msg[1];
-  const payload = msg.slice(2);
-  
-  if (frameType === TELEMETRY_FRAME) {
-    console.log('Processing telemetry frame');
-    const telemetryData = parseTelemetryData(payload);
-    
-    if (telemetryData) {
-      latestTelemetry = telemetryData;
-      // Broadcast to all connected clients
-      io.emit('telemetry', telemetryData);
-      console.log('Telemetry data broadcasted to clients');
-    }
-  } else {
-    console.log('Received non-telemetry frame, type:', frameType);
-  }
-});
+                switch (message.type) {
+                    case 'text':
+                        console.log(chalk.blue('\n[TEXT]'), message.payload);
+                        break;
 
-udpServer.on('error', (err) => {
-  console.error('UDP server error:', err);
-});
+                    case 'telemetry':
+                        console.log(chalk.yellow('\n[TELEMETRY]'));
+                        for (const [key, value] of Object.entries(message.payload)) {
+                            console.log(chalk.yellow(`  ${key}:`), value);
+                        }
+                        break;
 
-udpServer.on('listening', () => {
-  const address = udpServer.address();
-  console.log(`UDP server listening on ${address.address}:${address.port}`);
-});
+                    case 'error':
+                        console.log(
+                            chalk.red('\n[ERROR]'),
+                            `Command: ${message.payload.last_command},`,
+                            `Feedback: ${message.payload.last_feedback}`
+                        );
+                        break;
 
-// Start UDP server
-udpServer.bind(TELEMETRY_PORT);
+                    case 'image_complete':
+                        console.log(chalk.green('\n[IMAGE]'), `Saved as: ${message.payload.path}`);
+                        break;
 
-// Socket.io event handlers
-io.on('connection', (socket) => {
-  console.log('Client connected:', socket.id);
-  
-  // Send latest telemetry data to newly connected client
-  if (latestTelemetry) {
-    socket.emit('telemetry', latestTelemetry);
-  }
-  
-  // Handle command requests from client
-  socket.on('command', async (data, callback) => {
-    console.log('Received command:', data.command);
-    
+                    case 'image_init':
+                        console.log(chalk.cyan('\n[IMAGE INIT]'));
+                        console.log(JSON.stringify(message.payload, null, 2));
+                        break;
+
+                    case 'image_part':
+                        console.log(chalk.cyan('\n[IMAGE PART]'), `Offset: ${message.payload.offset}`);
+                        break;
+
+                    case 'frame':
+                        console.log(
+                            chalk.magenta('\n[FRAME]'),
+                            `Type: ${message.payload.type}`,
+                            `Length: ${message.payload.payload.length / 2} bytes`
+                        );
+                        break;
+
+                    default:
+                        console.log(
+                            chalk.magenta(`\n[${message.type.toUpperCase()}]`),
+                            JSON.stringify(message.payload, null, 2)
+                        );
+                }
+            }
+
+            rl.prompt();
+        } catch (error) {
+            console.error(chalk.red('\nError parsing message:'), error);
+            rl.prompt();
+        }
+    });
+
+    ws.on('close', () => {
+        console.log(chalk.yellow(`\nConnection from ${clientAddress} closed`));
+        if (hardwareConnection === ws) {
+            hardwareConnection = null;
+            console.log(chalk.red('[HARDWARE DISCONNECTED]'));
+            
+            // Notify all website connections about hardware disconnection
+            websiteConnections.forEach(websiteWs => {
+                if (websiteWs.readyState === WebSocket.OPEN) {
+                    websiteWs.send(JSON.stringify({
+                        type: 'hardware_status',
+                        connected: false
+                    }));
+                }
+            });
+        }
+        websiteConnections.delete(ws);
+        rl.prompt();
+    });
+
+    ws.on('error', (error) => {
+        console.error(chalk.red('\nWebSocket error:'), error.message);
+        rl.prompt();
+    });
+
+    // Send initial connection message (this will help identify if it's a website connection)
     try {
-      // Here you would implement the logic to send commands to lunarterm
-      // For now, we'll simulate a successful command
-      const success = await sendCommandToLunarterm(data.command);
-      
-      if (callback) {
-        callback({ success: true, message: 'Command sent successfully' });
-      }
+        ws.send(JSON.stringify({ type: 'server_hello', message: 'Connection established' }));
+        
+        // Send current hardware status to ALL new connections (website will use it, hardware will ignore it)
+        ws.send(JSON.stringify({
+            type: 'hardware_status',
+            connected: !!(hardwareConnection && hardwareConnection.readyState === WebSocket.OPEN)
+        }));
+        
+        console.log(chalk.cyan(`[STATUS] Sent hardware status (${!!(hardwareConnection && hardwareConnection.readyState === WebSocket.OPEN)}) to new connection`));
     } catch (error) {
-      console.error('Error sending command:', error);
-      if (callback) {
-        callback({ success: false, message: error.message });
-      }
+        console.error(chalk.red('Error sending hello message:', error));
     }
-  });
-  
-  socket.on('disconnect', () => {
-    console.log('Client disconnected:', socket.id);
-  });
+
+    // Show available commands
+    console.log('\nAvailable commands:');
+    AVAILABLE_COMMANDS.forEach(cmd => console.log(`  ${cmd}`));
+    console.log("\nType 'exit' to quit\n");
+    rl.prompt();
 });
 
-// Function to send commands to lunarterm
-async function sendCommandToLunarterm(command) {
-  // This is a placeholder implementation
-  // In a real scenario, you would:
-  // 1. Connect to lunarterm via serial or network
-  // 2. Send the command in the proper format
-  // 3. Wait for acknowledgment
-  
-  console.log(`Sending command to lunarterm: ${command}`);
-  
-  // Simulate command processing
-  return new Promise((resolve, reject) => {
-    setTimeout(() => {
-      // Simulate success for now
-      resolve(true);
-    }, 100);
-  });
-}
+// Handle command input from terminal
+rl.on('line', (line) => {
+    const command = line.trim();
+    
+    if (command.toLowerCase() === 'exit') {
+        console.log(chalk.yellow('\nGoodbye!'));
+        process.exit(0);
+    }
 
-// REST API endpoints
-app.get('/api/telemetry', (req, res) => {
-  res.json(latestTelemetry);
+    if (command) {
+        if (hardwareConnection && hardwareConnection.readyState === WebSocket.OPEN) {
+            console.log(chalk.cyan(`[TERMINAL COMMAND] Sending command "${command}" to hardware`));
+            hardwareConnection.send(JSON.stringify({ command }));
+        } else {
+            console.log(chalk.red('\nNo hardware connection'));
+        }
+    }
+
+    rl.prompt();
 });
 
-app.post('/api/command', async (req, res) => {
-  const { command } = req.body;
-  
-  try {
-    await sendCommandToLunarterm(command);
-    res.json({ success: true, message: 'Command sent successfully' });
-  } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
-  }
+rl.on('close', () => {
+    console.log(chalk.yellow('\nGoodbye!'));
+    process.exit(0);
 });
 
-const PORT = process.env.PORT || 3001;
-server.listen(PORT, () => {
-  console.log(`Bridge server running on port ${PORT}`);
-  console.log(`Waiting for telemetry data on UDP port ${TELEMETRY_PORT}`);
+// Handle process termination
+process.on('SIGINT', () => {
+    rl.close();
 }); 

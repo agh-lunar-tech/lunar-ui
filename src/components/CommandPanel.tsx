@@ -21,8 +21,17 @@ import {
   Settings,
 } from '@mui/icons-material';
 
+interface CommandResponse {
+  status: 'success' | 'error';
+  message: string;
+  port?: string;
+  port_open?: boolean;
+  timestamp?: number;
+  available_commands?: string[];
+}
+
 interface CommandPanelProps {
-  onSendCommand: (command: string) => Promise<void>;
+  onSendCommand: (command: string) => Promise<CommandResponse>;
 }
 
 const CommandPanel: React.FC<CommandPanelProps> = ({ onSendCommand }) => {
@@ -31,6 +40,7 @@ const CommandPanel: React.FC<CommandPanelProps> = ({ onSendCommand }) => {
     open: boolean;
     message: string;
     severity: 'success' | 'error';
+    details?: string;
   }>({
     open: false,
     message: '',
@@ -40,16 +50,19 @@ const CommandPanel: React.FC<CommandPanelProps> = ({ onSendCommand }) => {
   const handleCommand = async (command: string, label: string) => {
     try {
       setLoading(command);
-      await onSendCommand(command);
+      const response = await onSendCommand(command);
+      
+      // Show the actual server response
       setNotification({
         open: true,
-        message: `${label} command sent successfully`,
-        severity: 'success',
+        message: response.message,
+        severity: response.status,
+        details: response.port ? `Port: ${response.port} (${response.port_open ? 'open' : 'closed'})` : undefined,
       });
     } catch (error) {
       setNotification({
         open: true,
-        message: `Failed to send ${label} command`,
+        message: error instanceof Error ? error.message : `Failed to send ${label} command`,
         severity: 'error',
       });
     } finally {
@@ -128,14 +141,23 @@ const CommandPanel: React.FC<CommandPanelProps> = ({ onSendCommand }) => {
 
       <Snackbar
         open={notification.open}
-        autoHideDuration={4000}
+        autoHideDuration={6000}
         onClose={() => setNotification({ ...notification, open: false })}
       >
         <Alert
           severity={notification.severity}
           onClose={() => setNotification({ ...notification, open: false })}
         >
-          {notification.message}
+          <Box>
+            <Typography variant="body2" component="div">
+              {notification.message}
+            </Typography>
+            {notification.details && (
+              <Typography variant="caption" component="div" sx={{ mt: 0.5, opacity: 0.8 }}>
+                {notification.details}
+              </Typography>
+            )}
+          </Box>
         </Alert>
       </Snackbar>
     </Box>

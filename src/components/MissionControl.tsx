@@ -20,7 +20,7 @@ import CommandPanel from './CommandPanel';
 import { useTelemetry } from '../hooks/useTelemetry';
 
 const MissionControl: React.FC = () => {
-  const { telemetryData, connectionStatus, sendCommand } = useTelemetry();
+  const { telemetryData, serverConnectionStatus, hardwareConnectionStatus, sendCommand } = useTelemetry();
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
 
   useEffect(() => {
@@ -31,9 +31,11 @@ const MissionControl: React.FC = () => {
 
   const handleCommand = async (command: string) => {
     try {
-      await sendCommand(command);
+      const response = await sendCommand(command);
+      return response;
     } catch (error) {
       console.error('Failed to send command:', error);
+      throw error;
     }
   };
 
@@ -49,15 +51,30 @@ const MissionControl: React.FC = () => {
         </Box>
         
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 2 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center' }}>
-            {connectionStatus === 'connected' ? (
-              <RadioButtonChecked sx={{ color: 'success.main' }} />
-            ) : (
-              <RadioButtonUnchecked sx={{ color: 'error.main' }} />
-            )}
-            <Typography variant="body1" sx={{ ml: 1 }}>
-              Connection: {connectionStatus}
-            </Typography>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+            {/* Server Connection Status */}
+            <Box sx={{ display: 'flex', alignItems: 'center' }}>
+              {serverConnectionStatus === 'connected' ? (
+                <RadioButtonChecked sx={{ color: 'success.main' }} />
+              ) : (
+                <RadioButtonUnchecked sx={{ color: 'error.main' }} />
+              )}
+              <Typography variant="body1" sx={{ ml: 1 }}>
+                Server: {serverConnectionStatus}
+              </Typography>
+            </Box>
+            
+            {/* Hardware Connection Status */}
+            <Box sx={{ display: 'flex', alignItems: 'center' }}>
+              {hardwareConnectionStatus === 'connected' ? (
+                <RadioButtonChecked sx={{ color: 'success.main' }} />
+              ) : (
+                <RadioButtonUnchecked sx={{ color: 'error.main' }} />
+              )}
+              <Typography variant="body1" sx={{ ml: 1 }}>
+                Hardware: {hardwareConnectionStatus}
+              </Typography>
+            </Box>
           </Box>
           
           {lastUpdate && (
@@ -71,9 +88,14 @@ const MissionControl: React.FC = () => {
       </Paper>
 
       {/* Status Alert */}
-      {connectionStatus === 'disconnected' && (
+      {serverConnectionStatus === 'disconnected' && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          No connection to server. Please ensure the bridge server is running on port 2177.
+        </Alert>
+      )}
+      {serverConnectionStatus === 'connected' && hardwareConnectionStatus === 'disconnected' && (
         <Alert severity="warning" sx={{ mb: 2 }}>
-          No connection to lunarterm. Please ensure the system is running and accessible.
+          Server connected, but hardware is not connected. Commands will not be executed.
         </Alert>
       )}
 
