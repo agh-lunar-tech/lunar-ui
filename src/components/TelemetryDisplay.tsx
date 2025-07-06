@@ -28,16 +28,16 @@ interface TelemetryData {
   'mmc_mag_data.y': number;
   'mmc_mag_data.z': number;
   'mmc_temp': number;
-  'rdn_serial_dose': number;
-  'rdn_sen1_dose': number;
-  'rdn_sen2_dose': number;
-  'rdn_serial_intensity': number;
-  'rdn_sen1_intensity': number;
-  'rdn_sen2_intensity': number;
-  'rdn_temp': number;
-  'rdn_vdd': number;
-  'rdn_crystal_ok': boolean;
-  'rdn_analog_ok': boolean;
+  'rdn_serial_dose'?: number;
+  'rdn_sen1_dose'?: number;
+  'rdn_sen2_dose'?: number;
+  'rdn_serial_intensity'?: number;
+  'rdn_sen1_intensity'?: number;
+  'rdn_sen2_intensity'?: number;
+  'rdn_temp'?: number;
+  'rdn_vdd'?: number;
+  'rdn_crystal_ok'?: boolean;
+  'rdn_analog_ok'?: boolean;
   'encoder_sensor': number;
   'hall_endstop': number;
   'reflective_endstop': number;
@@ -62,7 +62,10 @@ const TelemetryDisplay: React.FC<TelemetryDisplayProps> = ({ telemetryData }) =>
     );
   }
 
-  const formatValue = (value: number | boolean, unit?: string) => {
+  const formatValue = (value: number | boolean | undefined, unit?: string) => {
+    if (value === undefined || value === null) {
+      return 'N/A';
+    }
     if (typeof value === 'boolean') {
       return value ? 'OK' : 'ERROR';
     }

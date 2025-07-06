@@ -25,18 +25,28 @@ A modern React-based user interface for monitoring and controlling lunar mission
 ## Architecture
 
 ```
-┌─────────────────┐    WebSocket   ┌─────────────────┐    WebSocket    ┌─────────────────┐
-│                 │ ◄────────────► │                 │ ◄─────────────► │                 │
-│   React App     │                │  Bridge Server  │                 │   lunarterm     │
-│  (Port 2178)    │                │  (Port 2177)    │                 │    on rasb      |
-└─────────────────┘                └─────────────────┘                 └─────────────────┘
+┌─────────────────┐    HTTP API     ┌─────────────────┐    WebSocket    ┌─────────────────┐    WebSocket    ┌─────────────────┐
+│                 │ ◄─────────────► │                 │ ◄─────────────► │                 │ ◄─────────────► │                 │
+│   React App     │                 │   HTTP Bridge   │                 │ WebSocket Server│                 │   lunarterm     │
+│  (Port 2178)    │                 │  (Port 2179)    │                 │  (Port 2177)    │                 │    on rasb      |
+└─────────────────┘                 └─────────────────┘                 └─────────────────┘                 └─────────────────┘
 ```
 
-The system consists of three main components:
+The system consists of four main components:
 
 1. **React Frontend** - Modern UI for displaying telemetry and sending commands
-2. **Bridge Server** - Node.js WebSocket server that forwards commands and responses
-3. **lunarterm (Hardware)** - Python application that communicates with the spacecraft hardware
+2. **HTTP Bridge** - Node.js HTTP server that converts HTTP requests to WebSocket messages
+3. **WebSocket Server** - Node.js WebSocket server that forwards commands and responses
+4. **lunarterm (Hardware)** - Python application that communicates with the spacecraft hardware
+
+### Communication Flow
+
+1. **Website → HTTP Bridge**: React app sends HTTP requests to the bridge
+2. **HTTP Bridge → WebSocket Server**: Bridge forwards commands via WebSocket
+3. **WebSocket Server → Hardware**: Server communicates with lunarterm hardware
+4. **Hardware → WebSocket Server → HTTP Bridge → Website**: Responses flow back through the chain
+
+This architecture solves browser WebSocket connection issues by using reliable HTTP communication between the frontend and backend.
 
 ## Installation
 
@@ -56,40 +66,72 @@ This will install dependencies for both the React app and the bridge server.
 
 ## How to Run
 
-### Step 1: Start the Bridge Server
+### Method 1: Automatic (Recommended)
 
+```bash
+cd lunarterm
+./start-system.sh
+```
+
+This will automatically start all three components:
+- WebSocket server (port 2177)
+- HTTP bridge (port 2179)  
+- React app (port 2178)
+
+To stop everything:
+```bash
+./stop-system.sh
+```
+
+### Method 2: Manual (3 Terminal Windows)
+
+If you prefer to run each component separately:
+
+#### Terminal 1: WebSocket Server
 ```bash
 cd lunarterm/bridge-server
 node server.js
 ```
 
-The bridge server will:
-- Start listening on port 2177 for WebSocket connections
-- Accept connections from both the website and hardware
-- Forward commands from website to hardware
-- Forward responses from hardware back to website
-
-You should see:
-```
-WebSocket server starting on 0.0.0.0:2177...
-Available commands:
-  idle
-  sen_init
-  cut_thermal
-  motor_up
-  ...
+#### Terminal 2: HTTP Bridge
+```bash
+cd lunarterm/bridge-server
+node http-bridge.js
 ```
 
-### Step 2: Start the React App
-
+#### Terminal 3: React App
 ```bash
 cd lunarterm
 npm start
 ```
 
-The React app will open in your browser at `http://localhost:2178`
+### What You'll See
 
-### Step 3: Connect Hardware (lunarterm)
+When everything is running correctly:
+
+**WebSocket Server (port 2177):**
+```
+WebSocket server starting on 0.0.0.0:2177...
+New connection from 127.0.0.1  <- HTTP bridge connected
+```
+
+**HTTP Bridge (port 2179):**
+```
+🌉 HTTP Bridge server running on port 2179
+🔗 Connected to main WebSocket server
+```
+
+**React App (port 2178):**
+```
+webpack compiled successfully
+Local: http://localhost:2178
+```
+
+**Browser:** `http://localhost:2178`
+- Server: connected ✅
+- Hardware: disconnected (until hardware connects)
+
+### Connect Hardware (lunarterm)
 
 Configure your lunarterm system to connect to the WebSocket server:
 - **Server URL**: `ws://[SERVER_IP]:2177`
