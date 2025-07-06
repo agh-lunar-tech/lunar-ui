@@ -1,6 +1,6 @@
 # Lunar Mission Control UI
 
-A modern React-based user interface for monitoring and controlling lunar mission operations. This application receives telemetry data from the lunarterm system and provides a user-friendly interface for sending commands to the spacecraft.
+A modern React-based user interface for monitoring and controlling lunar mission operations. This application connects to the lunarterm system via a WebSocket bridge server, providing real-time telemetry display and command interface.
 
 ## Features
 
@@ -11,160 +11,115 @@ A modern React-based user interface for monitoring and controlling lunar mission
   - System status indicators
   - Temperature readings
 
-- **Command Interface**: Send commands to the lunar system:
+- **Command Interface**: Send commands to the lunarterm system:
   - System control (idle, initialize sensors, start operations)
   - Camera operations (capture, download, send images)
   - Motor and power management
   - LED control
 
+- **Dual Connection Status**: Monitor both server and hardware connections
 - **Modern UI**: Dark theme optimized for mission control environments
-- **Real-time Updates**: WebSocket connection for live data streaming
+- **Real-time Command Feedback**: See actual responses from the hardware
 - **Responsive Design**: Works on desktop and mobile devices
 
 ## Architecture
 
 ```
-┌─────────────────┐    WebSocket    ┌─────────────────┐    UDP:10015    ┌─────────────────┐
+┌─────────────────┐    WebSocket    ┌─────────────────┐    WebSocket    ┌─────────────────┐
 │                 │ ◄────────────► │                 │ ◄─────────────► │                 │
 │   React App     │                │  Bridge Server  │                 │   lunarterm     │
-│  (Port 3000)    │                │  (Port 3001)    │                 │                 │
+│  (Port 2178)    │                │  (Port 2177)    │                 │   (Hardware)    │
 └─────────────────┘                └─────────────────┘                 └─────────────────┘
 ```
 
 The system consists of three main components:
 
 1. **React Frontend** - Modern UI for displaying telemetry and sending commands
-2. **Bridge Server** - Node.js server that bridges WebSocket (for React) and UDP (for lunarterm)
-3. **lunarterm** - Python application that communicates with the spacecraft hardware
-
-## Prerequisites
-
-- Node.js (v16 or higher)
-- npm or yarn
-- Python 3.x (for lunarterm)
+2. **Bridge Server** - Node.js WebSocket server that forwards commands and responses
+3. **lunarterm (Hardware)** - Python application that communicates with the spacecraft hardware
 
 ## Installation
 
-### 1. Install React App Dependencies
+### Prerequisites
+
+- Node.js (v16 or higher)
+- npm or yarn
+
+### 1. Install Dependencies
 
 ```bash
-cd lunar-ui
-npm install
-# or
-yarn install
-```
-
-### 2. Install Bridge Server Dependencies
-
-```bash
-cd bridge-server
+cd lunarterm
 npm install
 ```
 
-## Running the Application
+This will install dependencies for both the React app and the bridge server.
+
+## How to Run
 
 ### Step 1: Start the Bridge Server
 
 ```bash
-cd bridge-server
-npm start
+cd lunarterm/bridge-server
+node server.js
 ```
 
 The bridge server will:
-- Start listening on port 3001 for WebSocket connections
-- Start listening on UDP port 10015 for telemetry data from lunarterm
+- Start listening on port 2177 for WebSocket connections
+- Accept connections from both the website and hardware
+- Forward commands from website to hardware
+- Forward responses from hardware back to website
+
+You should see:
+```
+WebSocket server starting on 0.0.0.0:2177...
+Available commands:
+  idle
+  sen_init
+  cut_thermal
+  motor_up
+  ...
+```
 
 ### Step 2: Start the React App
 
 ```bash
-cd lunar-ui
+cd lunarterm
 npm start
 ```
 
-The React app will open in your browser at `http://localhost:3000`
+The React app will open in your browser at `http://localhost:2178`
 
-### Step 3: Start lunarterm (in a separate terminal)
+### Step 3: Connect Hardware (lunarterm)
 
-```bash
-cd ../lunarterm
-python lunarterm.py
-```
+Configure your lunarterm system to connect to the WebSocket server:
+- **Server URL**: `ws://[SERVER_IP]:2177`
+- **Connection Type**: WebSocket client
 
-Or use the built-in simulator for testing:
+The hardware should connect and send identification or telemetry data.
 
-```bash
-cd simulator
-python3 lunar_simulator.py
-# or use the interactive runner
-./run_simulator.sh
-```
+## Connection Status
 
-## Configuration
+The website displays dual connection status in the top bar:
 
-### Bridge Server Configuration
+- **Server: connected/disconnected** - Connection between website and bridge server
+- **Hardware: connected/disconnected** - Connection between bridge server and lunarterm hardware
 
-The bridge server can be configured by modifying `bridge-server/server.js`:
+### Connection Flow
 
-- `TELEMETRY_PORT`: UDP port for receiving telemetry (default: 10015)
-- `PORT`: HTTP/WebSocket server port (default: 3001)
+1. **Website → Server**: Website connects to bridge server on port 2177
+2. **Hardware → Server**: lunarterm hardware connects to bridge server on port 2177
+3. **Command Flow**: Website → Bridge Server → Hardware
+4. **Response Flow**: Hardware → Bridge Server → Website
 
-### React App Configuration
+### Status Indicators
 
-The React app connects to the bridge server via WebSocket. Update the connection URL in `src/hooks/useTelemetry.ts` if needed:
+- 🟢 **Server: connected, Hardware: connected** - Fully operational
+- 🟡 **Server: connected, Hardware: disconnected** - Commands will not be executed
+- 🔴 **Server: disconnected, Hardware: disconnected** - No connection to bridge server
 
-```typescript
-const newSocket = io('http://localhost:3001');
-```
+## Available Commands
 
-## Development
-
-### Hot Reload
-
-Both the React app and bridge server support hot reload during development:
-
-```bash
-# React app (automatically reloads on changes)
-npm start
-
-# Bridge server (with nodemon)
-cd bridge-server
-npm run dev
-```
-
-### Testing with Simulator
-
-To test the system without actual hardware:
-
-1. Start the bridge server
-2. Start the React app
-3. Run the built-in lunar simulator:
-
-```bash
-cd simulator
-python3 lunar_simulator.py --rate 1
-```
-
-The built-in simulator provides realistic telemetry data with:
-- Orbital mechanics simulation
-- Thermal cycling effects
-- Radiation environment modeling
-- Multiple mission scenarios (nominal, anomaly, eclipse)
-
-For more details, see [simulator/README.md](simulator/README.md).
-
-## Telemetry Data Format
-
-The system processes telemetry frames with the following sensor data:
-
-- **IMU Data**: 3-axis gyroscope and accelerometer readings
-- **Magnetometer**: 3-axis magnetic field measurements
-- **Radiation**: Multiple radiation sensors with dose and intensity
-- **System Status**: Encoder, endstops, and light sensor readings
-- **Temperature**: Various temperature sensors throughout the system
-
-## Command Interface
-
-Available commands match the lunarterm system:
+The system supports all lunarterm commands:
 
 - `idle` - Stop all operations
 - `sen_init` - Initialize sensors
@@ -175,26 +130,96 @@ Available commands match the lunarterm system:
 - `motor_up` / `motor_down` - Motor control
 - `cut_thermal` - Thermal knife control
 - `led_proc` - LED control
+- `reset` - Reset system
+- `long` - Long duration operation
+
+## Command Feedback
+
+Unlike traditional systems that show generic "command sent" messages, this system displays **actual hardware responses**:
+
+- **Success**: "Command idle sent to hardware" with port status
+- **Error**: Specific error messages from the hardware
+- **Timeout**: If hardware doesn't respond within 10 seconds
+
+## Configuration
+
+### Bridge Server Configuration
+
+Edit `bridge-server/server.js` to modify:
+- `PORT`: WebSocket server port (default: 2177)
+- `HOST`: Server bind address (default: 0.0.0.0 - all interfaces)
+
+### React App Configuration
+
+Edit `src/hooks/useTelemetry.ts` to modify:
+- `SERVER_URL`: WebSocket server URL (default: ws://localhost:2177)
+
+You can also use environment variables:
+```bash
+REACT_APP_SERVER_URL=ws://your-server:2177 npm start
+```
+
+## Development
+
+### Hot Reload
+
+Both components support hot reload during development:
+
+```bash
+# React app (automatically reloads on changes)
+npm start
+
+# Bridge server (restart manually after changes)
+cd bridge-server
+node server.js
+```
+
+### Testing Commands
+
+You can test commands directly from the bridge server terminal:
+```
+command> idle
+command> sen_init
+```
 
 ## Troubleshooting
 
 ### Connection Issues
 
-- Ensure the bridge server is running on port 3001
-- Check that lunarterm is sending UDP packets to port 10015
-- Verify firewall settings allow local connections
+**Website shows "Server: disconnected"**
+- Ensure bridge server is running on port 2177
+- Check browser console for WebSocket errors
+- Verify no firewall blocking localhost connections
 
-### No Telemetry Data
+**Website shows "Hardware: disconnected"**
+- Ensure lunarterm hardware is running
+- Check hardware is configured to connect to correct WebSocket URL
+- Verify hardware is sending proper identification or telemetry data
 
-- Check that lunarterm is running and connected to hardware
-- Verify UDP port 10015 is not blocked
-- Use the simulator to test the data flow
+### Command Issues
 
-### Command Not Working
+**Commands timeout or fail**
+- Check bridge server logs for error messages
+- Ensure hardware connection is stable
+- Verify command format matches lunarterm expectations
 
-- Ensure the bridge server has a proper connection to lunarterm
-- Check the bridge server logs for error messages
-- Verify the command format matches the lunarterm expectations
+### Debug Mode
+
+The bridge server includes detailed logging:
+- `[WEBSITE COMMAND]` - Commands received from website
+- `[HARDWARE RESPONSE]` - Responses from hardware
+- `[FORWARDING]` - Message forwarding between connections
+
+## Network Configuration
+
+### Local Development
+- Website: `http://localhost:2178`
+- Bridge Server: `ws://localhost:2177`
+
+### Remote Hardware
+If hardware is on a different machine:
+- Bridge Server: `ws://[SERVER_IP]:2177`
+- Ensure port 2177 is accessible from hardware machine
 
 ## License
 
