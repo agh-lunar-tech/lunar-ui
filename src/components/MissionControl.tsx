@@ -17,10 +17,11 @@ import {
 } from '@mui/icons-material';
 import TelemetryDisplay from './TelemetryDisplay';
 import CommandPanel from './CommandPanel';
+import LogsDisplay from './LogsDisplay';
 import { useTelemetry } from '../hooks/useTelemetry';
 
 const MissionControl: React.FC = () => {
-  const { telemetryData, serverConnectionStatus, hardwareConnectionStatus, sendCommand } = useTelemetry();
+  const { telemetryData, serverConnectionStatus, hardwareConnectionStatus, eddieConnectionStatus, sendCommand, logs, showFrameLogs, setShowFrameLogs } = useTelemetry();
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
 
   useEffect(() => {
@@ -64,7 +65,7 @@ const MissionControl: React.FC = () => {
               </Typography>
             </Box>
             
-            {/* Hardware Connection Status */}
+            {/* Lunarterm Connection Status */}
             <Box sx={{ display: 'flex', alignItems: 'center' }}>
               {hardwareConnectionStatus === 'connected' ? (
                 <RadioButtonChecked sx={{ color: 'success.main' }} />
@@ -72,7 +73,19 @@ const MissionControl: React.FC = () => {
                 <RadioButtonUnchecked sx={{ color: 'error.main' }} />
               )}
               <Typography variant="body1" sx={{ ml: 1 }}>
-                Hardware: {hardwareConnectionStatus}
+                Lunarterm: {hardwareConnectionStatus}
+              </Typography>
+            </Box>
+            
+            {/* Eddie Connection Status */}
+            <Box sx={{ display: 'flex', alignItems: 'center' }}>
+              {eddieConnectionStatus === 'connected' ? (
+                <RadioButtonChecked sx={{ color: 'success.main' }} />
+              ) : (
+                <RadioButtonUnchecked sx={{ color: 'error.main' }} />
+              )}
+              <Typography variant="body1" sx={{ ml: 1 }}>
+                Eddie: {eddieConnectionStatus}
               </Typography>
             </Box>
           </Box>
@@ -93,9 +106,14 @@ const MissionControl: React.FC = () => {
           No connection to server. Please ensure the bridge server is running on port 2177.
         </Alert>
       )}
-      {serverConnectionStatus === 'connected' && hardwareConnectionStatus === 'disconnected' && (
+      {serverConnectionStatus === 'connected' && (hardwareConnectionStatus === 'disconnected' || eddieConnectionStatus === 'disconnected') && (
         <Alert severity="warning" sx={{ mb: 2 }}>
-          Server connected, but hardware is not connected. Commands will not be executed.
+          Server connected, but {hardwareConnectionStatus === 'disconnected' && eddieConnectionStatus === 'disconnected' ? 'Lunarterm and Eddie are' : hardwareConnectionStatus === 'disconnected' ? 'Lunarterm is' : 'Eddie is'} not connected. {hardwareConnectionStatus === 'disconnected' && eddieConnectionStatus === 'disconnected' ? 'Commands will not be executed.' : 'Some functionality may be limited.'}
+        </Alert>
+      )}
+      {serverConnectionStatus === 'connected' && hardwareConnectionStatus === 'connected' && eddieConnectionStatus === 'connected' && (
+        <Alert severity="success" sx={{ mb: 2 }}>
+          All systems connected and operational.
         </Alert>
       )}
 
@@ -111,6 +129,15 @@ const MissionControl: React.FC = () => {
           <CommandPanel onSendCommand={handleCommand} />
         </Grid>
       </Grid>
+
+      {/* Logs Display */}
+      <Box sx={{ mt: 3 }}>
+        <LogsDisplay 
+          logs={logs} 
+          showFrameLogs={showFrameLogs} 
+          setShowFrameLogs={setShowFrameLogs} 
+        />
+      </Box>
     </Box>
   );
 };
