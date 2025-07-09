@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Box,
   Paper,
@@ -6,7 +6,10 @@ import {
   Chip,
   FormControlLabel,
   Switch,
+  IconButton,
+  Fade,
 } from '@mui/material';
+import { KeyboardArrowDown } from '@mui/icons-material';
 import { styled } from '@mui/material/styles';
 
 interface LogMessage {
@@ -92,16 +95,37 @@ const LogLine = styled(Box)<{ level: 'info' | 'warning' | 'error' | 'success' }>
 
 const LogsDisplay: React.FC<LogsDisplayProps> = ({ logs, showFrameLogs, setShowFrameLogs }) => {
   const logsEndRef = useRef<HTMLDivElement>(null);
+  const logsContainerRef = useRef<HTMLDivElement>(null);
+  const [showScrollButton, setShowScrollButton] = useState(false);
 
-  // Auto-scroll to bottom when new logs arrive
+  // Check if user is at the bottom of the logs container
+  const checkIfAtBottom = () => {
+    if (logsContainerRef.current) {
+      const { scrollTop, scrollHeight, clientHeight } = logsContainerRef.current;
+      const isNearBottom = scrollTop + clientHeight >= scrollHeight - 10; // 10px threshold
+      setShowScrollButton(!isNearBottom);
+    }
+  };
+
+  // Handle scroll events
+  const handleScroll = () => {
+    checkIfAtBottom();
+  };
+
+  // Check on mount and when logs change
   useEffect(() => {
+    checkIfAtBottom();
+  }, [logs]);
+
+  // Manual scroll to bottom
+  const scrollToBottom = () => {
     if (logsEndRef.current) {
       logsEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [logs]);
+  };
 
   return (
-    <Box>
+    <Box sx={{ position: 'relative' }}>
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
         <Box sx={{ display: 'flex', alignItems: 'center' }}>
           <Typography variant="h6" component="h2" sx={{ color: 'text.primary', mr: 2 }}>
@@ -130,7 +154,7 @@ const LogsDisplay: React.FC<LogsDisplayProps> = ({ logs, showFrameLogs, setShowF
       </Box>
       
       <TerminalContainer elevation={3}>
-        <LogsContainer>
+        <LogsContainer ref={logsContainerRef} onScroll={handleScroll}>
           {logs.length === 0 ? (
             <Box sx={{ 
               display: 'flex', 
@@ -161,6 +185,27 @@ const LogsDisplay: React.FC<LogsDisplayProps> = ({ logs, showFrameLogs, setShowF
             </>
           )}
         </LogsContainer>
+        
+        {/* Scroll to bottom button */}
+        <Fade in={showScrollButton}>
+          <IconButton
+            onClick={scrollToBottom}
+            sx={{
+              position: 'absolute',
+              bottom: 16,
+              right: 16,
+              backgroundColor: 'rgba(0, 188, 212, 0.8)',
+              color: 'white',
+              '&:hover': {
+                backgroundColor: 'rgba(0, 188, 212, 1)',
+              },
+              zIndex: 1000,
+            }}
+            size="small"
+          >
+            <KeyboardArrowDown />
+          </IconButton>
+        </Fade>
       </TerminalContainer>
     </Box>
   );

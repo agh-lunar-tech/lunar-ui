@@ -211,6 +211,16 @@ export const useTelemetry = () => {
           const message = JSON.parse(event.data);
           console.log('📥 Received message:', message);
           
+          // Check for LUNARTERM heartbeats in any message type
+          if (message.payload && message.payload.message) {
+            const cleanMessage = message.payload.message.replace(/\u0000+/g, '').trim();
+            if (cleanMessage.includes('[LUNARTERM]') && cleanMessage.includes('[DEBUG]') && cleanMessage.includes('HEARTBEAT')) {
+              setLunartermLastHeartbeat(new Date());
+              setHardwareConnectionStatus('connected');
+              addLog('LUNARTERM_STATUS', 'Lunarterm heartbeat received - connected', 'success');
+            }
+          }
+          
           // Handle command responses
           if (message.status !== undefined) {
             console.log('Received command response:', message);
@@ -252,11 +262,8 @@ export const useTelemetry = () => {
             const timestamp = new Date(message.payload.timestamp * 1000).toLocaleTimeString();
             
             // Check for heartbeat messages
-            if (cleanMessage.includes('[LUNARTERM] [DEBUG] Heartbeat')) {
-              setLunartermLastHeartbeat(new Date());
-              setHardwareConnectionStatus('connected');
-              addLog('LUNARTERM_STATUS', 'Lunarterm heartbeat received - connected', 'success');
-            } else if (cleanMessage.includes('[EDDIE] [DEBUG] Heartbeat')) {
+            // Since this is an eddie_log message type, heartbeats from here are EDDIE heartbeats
+            if (cleanMessage.includes('[DEBUG] HEARTBEAT')) {
               setEddieLastHeartbeat(new Date());
               setEddieConnectionStatus('connected');
               addLog('EDDIE_STATUS', 'Eddie heartbeat received - connected', 'success');
